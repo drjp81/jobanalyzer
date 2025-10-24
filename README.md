@@ -33,6 +33,7 @@ Scrape fresh job postings, enrich them with AI scoring, and save everything to C
   - [13. Troubleshooting](#13-troubleshooting)
   - [14. About Performance.](#14-about-performance)
   - [Credits](#credits)
+  - [Ethical \& legal considerations](#ethical--legal-considerations)
 
 
 ---
@@ -353,3 +354,7 @@ This project includes code or inspiration from open-source projects:
 
 - [JobSpy](https://github.com/jobspy/jobspy) © 2023 Lucas Villalobos — Licensed under the MIT License.
 Huge thank you for getting that done.
+
+## Ethical & legal considerations
+
+Please see [docs/ETHICS.md¸](./docs/ETHICS.md) for guidance on legal compliance, candidate privacy, secure handling of API keys and secrets, model limitations, and recommended operational safeguards. This project is intended for lawful, responsible use; do not use it to violate terms of service, scrape sites that prohibit automated access, or make automated hiring decisions without human review.
