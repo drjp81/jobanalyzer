@@ -346,3 +346,9 @@ For reference a GTX 3080 GPU with **`qwen2.5:7b-instruct`** returns answers at a
 A GTX 1660 Super or a GTX 1650 mobile gets you about 45 seconds per job with a model half that size (**`llama3.2:3b-instruct-q6_K`**). And the `reliability` if that model is lower. Its scoring is sometime more, flakey. So review the data carefully. 
 
 >Note: don't be surprised if the read rate slows down after a few automated job reviews. A moving `context window` is cretaed in the workspace and the chat bot reuses it. So this data is also `considered` by the LLM. It will grow a bit, then stabilize. So if you got a quick reponse for the first few rows, it may double.
+
+## Credits
+This project includes code or inspiration from open-source projects:
+
+- [JobSpy](https://github.com/jobspy/jobspy) © 2023 Lucas Villalobos — Licensed under the MIT License.
+Huge thank you for getting that done.
