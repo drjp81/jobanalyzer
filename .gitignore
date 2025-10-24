@@ -1,0 +1,7 @@
+jobs_files/**
+jobhub-linkedin-tier1/jobs.db
+**/*.html
+collector/__pycache__/**
+**/*.csv
+.env
+**/*.zip

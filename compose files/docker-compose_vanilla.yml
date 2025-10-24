@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+  anythingllm:
+    image: mintplexlabs/anythingllm:latest
+    hostname: anythingllm
+    container_name: anythingllm
+    ports: 
+      - 3001:3001
+    environment:
+      - STORAGE_DIR=/app/server/storage
+      - DISABLE_TELEMETRY=true
+
+    volumes:
+      - /storage:/app/server/storage # Recommended to persist data, change left side only (/storage) make sure read and write permissions are set.
+    restart: unless-stopped
+
+  jobcollector:
+    build:
+      context: ../.
+      dockerfile: Dockerfile
+    image: drjp81/linkedinscrape:latest
+    container_name: jobcollector
+    environment:
+      # Collector parameters, notmally taken from .env file, see example file
+      - SITE_NAME=${SITE_NAME:-indeed,linkedin,glassdoor}
+      - SEARCH_TERMS=${SEARCH_TERMS:-Azure,devops}
+      - LOCATION=${LOCATION:-Canada}
+      - RESULTS_WANTED=${RESULTS_WANTED:-20}
+      - HOURS_OLD=${HOURS_OLD:-24}
+      - COUNTRY_INDEED=${COUNTRY_INDEED:-canada}
+      - LINKEDIN_FETCH_DESCRIPTION=${LINKEDIN_FETCH_DESCRIPTION:-true}
+      - DATA_DIR=/DATA
+      # Evaluator parameters
+      - ANLLM_API_KEY=${ANLLM_API_KEY}
+      - ANLLM_API_WORKSPACE=${ANLLM_API_WORKSPACE:-job-searching}
+      - ANLLM_API_BASE=${ANLLM_API_BASE:-http://anythingllm:3001}
+      - RETRIES=${RETRIES:-3}
+      - TIMEOUT_MINUTES=${TIMEOUT_MINUTES:-5}
+      - CANDIDATE_NAME=${CANDIDATE_NAME:-John Doe}
+    
+    volumes:
+      - /home/drjpuser/DATA/:/DATA #adjust to persist and make it available locally.
+    depends_on:
+      - anythingllm
+    restart: on-failure
+    #command: ["python3", "-u", "/app/collector.py"]
+
+  
