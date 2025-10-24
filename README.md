@@ -127,7 +127,7 @@ docker compose up [-f] [docker-compose-file] -d --build
 * AnythingLLM UI: [http://localhost:3001](http://localhost:3001)
 * Data directory: `./data` is mounted at `/DATA` in the worker container.
 ### After `.env` is saved and the stack is running, **it should automatically start a scraping collecting jobs.**
-  >This will give youtime to perform the other steps.
+  >This will give you time to perform the other steps.
 ---
 
 ## 3. Add your models to ollama (if you decided to run those locally)
