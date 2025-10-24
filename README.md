@@ -118,7 +118,7 @@ sequenceDiagram
 Edit your .env now; you will come back to add ANLLM_API_KEY after step 6
 
 ```bash
-cp .env.example .env
+cp .env.example "/compose files/.env"
 nano .env
 
 docker compose up [-f] [docker-compose-file] -d --build
