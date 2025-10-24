@@ -30,8 +30,9 @@ Scrape fresh job postings, enrich them with AI scoring, and save everything to C
   - [9. Run the data flow](#9-run-the-data-flow)
   - [11. Data outputs](#11-data-outputs)
   - [12. Revewing the Data](#12-revewing-the-data)
-  - [12. Troubleshooting](#12-troubleshooting)
-  - [13. About Performance.](#13-about-performance)
+  - [13. Troubleshooting](#13-troubleshooting)
+  - [14. About Performance.](#14-about-performance)
+  - [Credits](#credits)
 
 
 ---
@@ -237,7 +238,7 @@ Edit `.env` and set the following. All values are consumed by `docker-compose.ym
 ANYTHINGLLM_PORT=3001
 ANLLM_API_BASE=http://anythingllm:3001
 ANLLM_API_WORKSPACE=job-searching   # use your workspace slug
-ANLLM_API_KEY=[]]
+ANLLM_API_KEY=[YOU ANYTHING LLM API KEY] #do not save this in a repo or in an insecure location
 
 # Candidate identity used for logs and context naming
 CANDIDATE_NAME="John Doe"  # as it appears in your resume
@@ -276,7 +277,7 @@ If you want to run the scraping job manually:
     docker compose exec jobcollector pwsh -c "python3 /app/collector.py --results 100"
     ```
 
-    This writes `./DATA/flat_jobs_list.csv`.
+    This writes `./data/flat_jobs_list.csv`.
 
     Example Output:
     ![alt text](./assets/Screenshot%202025-10-23%20133734.png)
@@ -287,7 +288,7 @@ If you want to run the scraping job manually:
     docker compose exec jobcollector pwsh -f /app/csvget.ps1
     ```
 
-    This reads `flat_jobs_list.csv`, calls the AnythingLLM workspace chat API, and writes `./DATA/jobs_with_responses.csv` including `score`, `why`, and `gaps` columns.
+    This reads `flat_jobs_list.csv`, calls the AnythingLLM workspace chat API, and writes `./data/jobs_with_responses.csv` including `score`, `why`, and `gaps` columns.
 
     Example Output:
     ![alt text](./assets/Screenshot%202025-10-23%20133849.png)
@@ -312,14 +313,14 @@ A Utility script is included to generate a report:
 
 ```
 PS> .\New-JobReport.ps1 `
-  -CsvPath './DATA/jobs_with_responses_20251023_211848.csv' `
-  -OutputHtmlPath './DATA/jobs_report.html' `
+  -CsvPath './data/jobs_with_responses_20251023_211848.csv' `
+  -OutputHtmlPath './data/jobs_report.html' `
   -PageSize 1
 ```
 This generates an executive report to help you review the data
 ![alt text](./assets/Screenshot_23-10-2025_23159.jpeg)
 
-## 12. Troubleshooting
+## 13. Troubleshooting
 
 * **AnythingLLM cannot reach your provider**
 
@@ -340,12 +341,12 @@ This generates an executive report to help you review the data
 
   * Verify `ANLLM_API_KEY` and that `ANLLM_API_WORKSPACE` matches the slug shown in the UI.
 
-## 13. About Performance.
+## 14. About Performance.
 
 For reference a GTX 3080 GPU with **`qwen2.5:7b-instruct`** returns answers at a rate, per job, one per 20 seconds. 
 A GTX 1660 Super or a GTX 1650 mobile gets you about 45 seconds per job with a model half that size (**`llama3.2:3b-instruct-q6_K`**). And the `reliability` if that model is lower. Its scoring is sometime more, flakey. So review the data carefully. 
 
->Note: don't be surprised if the read rate slows down after a few automated job reviews. A moving `context window` is cretaed in the workspace and the chat bot reuses it. So this data is also `considered` by the LLM. It will grow a bit, then stabilize. So if you got a quick reponse for the first few rows, it may double.
+>Note: don't be surprised if the read rate slows down after a few automated job reviews. A moving `context window` is created in the workspace and the chat bot reuses it. So this data is also `considered` by the LLM. It will grow a bit, then stabilize. So if you got a quick reponse for the first few rows, it may double.
 
 ## Credits
 This project includes code or inspiration from open-source projects:
