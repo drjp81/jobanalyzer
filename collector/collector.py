@@ -59,10 +59,10 @@ def _env(key: str, default: str) -> str:
     return val
 
 # if the output file already exists, inform the user and quit.
-if os.path.exists(os.path.join(_env("DATA_DIR"), "flat_jobs_list.csv")):
-    print(f"[collector] Output file already exists at {os.path.join(_env('DATA_DIR'), 'flat_jobs_list.csv')}. Please remove it before running again.",flush=True)
+if os.path.exists(os.path.join(os.environ["DATA_DIR"], "flat_jobs_list.csv")):
+    print(f"[collector] Output file already exists at {os.path.join(os.environ['DATA_DIR'], 'flat_jobs_list.csv')}. Please remove it before running again.",flush=True)
     print(f"[collector] Exiting normally...",flush=True)
-    sys.exit(1)
+    sys.exit(0)
 
 
 

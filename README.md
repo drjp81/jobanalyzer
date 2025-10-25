@@ -15,7 +15,9 @@ Scrape fresh job postings, enrich them with AI scoring, and save everything to C
   - [Contents](#contents)
   - [Prerequisites](#prerequisites)
 - [TL;DR Basic system workflow](#tldr-basic-system-workflow)
-  - [Per-job scoring sequence:](#per-job-scoring-sequence)
+  - [Diagram](#diagram)
+  - [Anything LLM "manual" scoring sequence:](#anything-llm-manual-scoring-sequence)
+  - [Ollama auto scoring sequence:](#ollama-auto-scoring-sequence)
   - [1. The stack](#1-the-stack)
     - [We've included 3 docker compose files:](#weve-included-3-docker-compose-files)
   - [2. Bring the stack up](#2-bring-the-stack-up)
@@ -34,6 +36,7 @@ Scrape fresh job postings, enrich them with AI scoring, and save everything to C
   - [14. About Performance.](#14-about-performance)
   - [Credits](#credits)
   - [Ethical \& legal considerations](#ethical--legal-considerations)
+- [TODO](#todo)
 
 
 ---
@@ -54,53 +57,90 @@ Scrape fresh job postings, enrich them with AI scoring, and save everything to C
 ---
 
 # TL;DR Basic system workflow
+
+- Flow script tests for ollama
+  - The `collector.py` scraper starts. 
+    - If an output exists, or everythin is good, it exits normally.
+- If ollama was detected and the jobs file exists, 
+  - `getcsv_ollama.ps1` runs automatically jobs are enriched whith AI
+  - `New-JobReport.ps1` is run automatically, a report is in the /DATA/ mapped folder
+- If Ollama wasn't detected: 
+  - The `collector.py` scraper starts.
+    - If an output exists, or everythin is good, it exits normally.
+  - you need to fix the .env file
+  - you run `docker compose up -d` manually
+  - you run `docker compose run --rm jobcollector /bin/bash` to shell into the container :
+    - you run `getcsv.ps1` script manually.
+    - you run `New-JobReport.ps1` manually
+
+The flow script will soon adress the AnythingLLM Scenario automatically as well.
+
+## Diagram
+
 ```mermaid
 flowchart TD
-  A[".env (terms, location, candidate)"] --> B["docker compose up"]
-  B --> C["AnythingLLM UI"]
-  C --> D["Configure Provider (e.g. Ollama qwen2.5:7b-instruct)"]
-  C --> E["Create Workspace / Upload+Pin Resume / Set Prompt+Variables"]
-  B --> F["jobcollector container"]
-
-  subgraph Scrape Begins
-    F --> G["collector.py (JobSpy)"]
-    G --> H["DATA/flat_jobs_list.csv"]
+  subgraph Start
+    A[".env (terms, location, candidate, API keys)"] --> B["docker compose up -d"]
   end
 
-  %% Feedback loop: tweak knobs, relaunch stack
-  H --> X["Edit .env (API KEY)"]
-  X --> Y["docker compose up -d"]
-  Y --> Z["shell into collector"]
-  Z --> I
 
-  subgraph Score
-    I["csvget.ps1 (for each job)"]
-    I --> J["AnythingLLM Workspace Chat API"]
-    J --> K["LLM JSON result"]
-    K --> L["DATA/jobs_with_responses.csv"]
+
+  subgraph Scrape
+    B --> R{"File exists or<br/>was produced successfuly?<br/>(normal exit)"}
+    R -->|no| Z["[flow] Stop (no jobs file)"]
+    R -->|yes| S{"Ollama reachable?"}
   end
 
-  L --> M["Report Generator (HTML/Markdown)"]
-  M --> N["DATA/job_report.html"]
-
-
+  subgraph Option Ollama
+  %% Option A: Local Ollama
+  S -->|yes| A1["csvget_ollama.ps1<br/>(enrich locally)"]
+  A1 --> A2["jobs_with_responses_ollama.csv"]
+  A2 --> A3["New-JobReport.ps1 (HTML)"]
+  end
+  subgraph Option AnythingLLM
+  %% Option B: Fallback to AnythingLLM
+  S -->|no| B1["fix .env manually"]
+  B1 --> B2["docker compose up -d"]
+    B2 --> B3["Launch csvget.ps1<br/>enrich manually"]
+  B3 --> B4["Launch New-JobReport.ps1 (HTML) Manually"]
+  end
 ```
 
-## Per-job scoring sequence:
+## Anything LLM "manual" scoring sequence:
 
 ```mermaid
 sequenceDiagram
+  participant Flow as "[flow] script"
   participant Eval as "csvget.ps1"
-  participant A as "AnythingLLM"
-  participant L as "LLM (provider)"
+  participant A as "AnythingLLM (workspace API)"
+  participant Prov as "Provider (e.g., OpenAI/Ollama remote)"
 
-  Eval->>A: "POST /api/v1/workspace/{slug}/chat\nmessage = {\"job_title\",\"job_description\"}"
-  A->>L: "Apply workspace prompt + variables"
-  L-->>A: "JSON (score, why, gaps, lang, seniority, locations, tags)"
+  Flow->>Eval: "For each job row"
+  Eval->>A: "POST /workspace/{slug}/chat (message = job JSON)"
+  A->>Prov: "Apply workspace prompt + variables"
+  Prov-->>A: "Strict JSON text"
   A-->>Eval: "{ textResponse: \"<JSON>\" }"
-  Eval->>Eval: "Parse JSON -> merge fields"
-  Eval->>CSV: "Append to jobs_with_responses.csv"
+  Eval->>Eval: "Parse JSON and merge into row"
+  Eval-->>Flow: "jobs_with_responses.csv (append/emit)"
 ```
+
+## Ollama auto scoring sequence:
+
+```mermaid
+sequenceDiagram
+  participant Flow as "[flow] script"
+  participant Gen as "csvget_ollama.ps1"
+  participant O as "Ollama (@ http://ollama:11434)"
+  participant M as "Model (qwen2.5:7b-instruct)"
+
+  Flow->>Gen: "For each job row"
+  Gen->>O: "POST /api/chat { model, messages, format:\"json\", stream:false, temperature:0 }"
+  O->>M: "Run completion with full RESUME_TEXT + INPUT_JOB_JSON"
+  M-->>O: "Strict JSON schema"
+  O-->>Gen: "{ message.content: \"<JSON>\" }"
+  Gen->>Gen: "Parse JSON and merge into row"
+  Gen-->>Flow: "jobs_with_responses_ollama.csv (append/emit)"
+  ```
 
 ## 1. The stack
 
@@ -314,7 +354,7 @@ A Utility script is included to generate a report:
 
 ```
 PS> .\New-JobReport.ps1 `
-  -CsvPath './data/jobs_with_responses_20251023_211848.csv' `
+  -CsvPath './data/jobs_with_responses.csv' `
   -OutputHtmlPath './data/jobs_report.html' `
   -PageSize 1
 ```
@@ -344,10 +384,12 @@ This generates an executive report to help you review the data
 
 ## 14. About Performance.
 
-For reference a GTX 3080 GPU with **`qwen2.5:7b-instruct`** returns answers at a rate, per job, one per 20 seconds. 
-A GTX 1660 Super or a GTX 1650 mobile gets you about 45 seconds per job with a model half that size (**`llama3.2:3b-instruct-q6_K`**). And the `reliability` if that model is lower. Its scoring is sometime more, flakey. So review the data carefully. 
+For reference a GTX 3080 GPU with **`qwen2.5:7b-instruct`** returns answers at a rate, per job, one per 4 seconds. Or 2 seconds for the smaller model.
+A GTX 1660 Super or a GTX 1650 mobile gets you about 30 seconds per job with a model half that size (**`llama3.2:3b-instruct-q6_K`**). And the `reliability` if that model is lower. Its scoring is sometime more, flakey. So review the data carefully. Double the mode size, and the processing time doubles as well.
 
->Note: don't be surprised if the read rate slows down after a few automated job reviews. A moving `context window` is created in the workspace and the chat bot reuses it. So this data is also `considered` by the LLM. It will grow a bit, then stabilize. So if you got a quick reponse for the first few rows, it may double.
+With larger models, bigger contexts are available. 
+
+>Note: don't be surprised if the read rate slows down after a few automated job reviews using AnythingLLM. A moving `context window` is created in the workspace and the chat bot reuses it. So this data is also `considered` by the LLM. It will grow a bit, then stabilize. So if you got a quick reponse for the first few rows, it may double. **`qwen2.5:7b-instruct`** Allows for contexts of 32768 tokens. We suggest pairing down you resume to about two pages, in plain text. (Roughly 8-10kb) and keeping the tokens at 8192 tokens. Increase them if you are having issues with the job descrption or weird errors. For the video cards quoted above, they easily support 32768 according to our tests.
 
 ## Credits
 This project includes code or inspiration from open-source projects:
@@ -358,3 +400,7 @@ Huge thank you for getting that done.
 ## Ethical & legal considerations
 
 Please see [docs/ETHICS.md¸](./docs/ETHICS.md) for guidance on legal compliance, candidate privacy, secure handling of API keys and secrets, model limitations, and recommended operational safeguards. This project is intended for lawful, responsible use; do not use it to violate terms of service, scrape sites that prohibit automated access, or make automated hiring decisions without human review.
+
+# TODO 
+- adjust the "flow script" to attempt to use AnythingLLM and enrich automatically, if it's api is reachable, and ollama is not.
+- Remove the Embedding Code from the Ollama Workflow as it is unnecesaary

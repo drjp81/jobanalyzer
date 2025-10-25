@@ -1,4 +1,4 @@
-version: "3.9"
+
 
 services:
   anythingllm:
@@ -16,6 +16,8 @@ services:
     restart: unless-stopped
     depends_on:
       - ollama
+    networks:
+      - app_network
 
   jobcollector:
     build:
@@ -40,13 +42,29 @@ services:
       - RETRIES=${RETRIES:-3}
       - TIMEOUT_MINUTES=${TIMEOUT_MINUTES:-5}
       - CANDIDATE_NAME=${CANDIDATE_NAME:-John Doe}
+# in case you use the ollama only flow
+      - OLLAMA_BASE=${OLLAMA_BASE:-http://ollama:11434}
+      - SCORER_MODEL=${SCORER_MODEL:-qwen2.5:7b-instruct}
+      - EMBED_MODEL=${EMBED_MODEL:-nomic-embed-text}
+      - CANDIDATE_RESUME_PATH=${CANDIDATE_RESUME_PATH:-/DATA/resume.txt}
+      - MUST_HAVES=${MUST_HAVES}
+      - NICE_TO_HAVES=${NICE_TO_HAVES}
+      - EXCLUSIONS=${EXCLUSIONS}
+      - LOCALE=${LOCALE}
+      - LANG_PREF=${LANG_PREF}
+      - SENIORITY_TARGET=${SENIORITY_TARGET}
+      - K_RESUME_SNIPPETS=${K_RESUME_SNIPPETS:-6}
+      - RESUME_CHUNK_SIZE=${RESUME_CHUNK_SIZE:-900}
+      - RESUME_CHUNK_OVERLAP=${RESUME_CHUNK_OVERLAP:-150}
     
     volumes:
       - /home/drjpuser/DATA/:/DATA #adjust to persist and make it available locally.
     depends_on:
-      - anythingllm
+      - ollama
     restart: on-failure
     #command: ["python3", "-u", "/app/collector.py"]
+    networks:
+      - app_network
 
   ollama:
     image: ollama/ollama:latest
@@ -54,17 +72,17 @@ services:
     hostname: ollama
     # Ports
     ports:
-      - 11434:11434
+      - 0.0.0.0:11434:11434
     # Environment variables
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
       - VERSION=nvidia
-      - OLLAMA_DEBUG=1
+      - OLLAMA_DEBUG=0
       - OLLAMA_ORIGINS=*
     runtime: nvidia
     privileged: true
-    network_mode: bridge
+    #network_mode: host
     volumes:
       - /mnt/pool3p/dockerdata/ollama/:/root/.ollama
     restart: always
@@ -77,5 +95,13 @@ services:
           - driver: nvidia
             count: all
             capabilities: [gpu]
-  test:    
-    command: ["ollama", "list"]
+    healthcheck:
+      interval: 1m30s
+      timeout: 10s
+      retries: 3
+      test:  ["CMD", "ollama", "list"]
+    networks:
+      - app_network
+networks:
+  app_network:
+    driver: bridge

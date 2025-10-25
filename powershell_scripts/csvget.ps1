@@ -17,6 +17,16 @@
   Path to the directory containing flat_jobs_list.csv and where jobs_with_responses.csv will be read/written.
   Default: value of environment variable DATA_DIR; if unset, defaults to "/DATA".
 
+.NOTES
+    File Name   : csvget.ps1
+    Project     : LinkedIn Scraper
+    Author      : Jean-Paul Lizotte
+    Created     : 2025-10-24
+    Version     : 0.0.1
+    Requires    : PowerShell 7+, AnythingLLM API endpoint accessible, valid AnythingLLM API key and workspace
+    Exit Codes  : 0 = Success, 1 = Configuration/service error, other = propagated from child scripts
+
+
 .ENVIRONMENT
   The script expects the following environment variables to be set:
     - ANLLM_API_KEY        : Bearer API key for AnythingLLM (required).
@@ -90,13 +100,13 @@ Param(
 )
 
 
-Write-Host "Starting job analysis script..."
+Write-Host "[ai enricher] Starting job analysis script..."
 
 # Defaults
 if (-not $DataDir) { $DataDir = "/DATA" }
 Set-Location $DataDir
 
-Write-Host "Using DataDir: $DataDir"
+Write-Host "[ai enricher] Using DataDir: $DataDir"
 
 # Back up previous results for traceability
 if (Test-Path -Path "jobs_with_responses.csv") {
@@ -119,12 +129,12 @@ $TIMEOUT_MINUTES = [int]($env:TIMEOUT_MINUTES ?? 5)
 $TIMEOUT_SECONDS = $TIMEOUT_MINUTES * 60
 
 #output non sensitive configuration details for logging
-Write-Host "Using AnythingLLM API URL: $ANLLM_API_URL"
-Write-Host "Using TIMEOUT_MINUTES: $TIMEOUT_MINUTES"
-Write-Host "Using RETRIES: $RETRIES"
-Write-Host "Using CANDIDATE_NAME: $($env:CANDIDATE_NAME)"
-Write-Host "Using workspace: $ANLLM_API_WORKSPACE"
-Write-Host "Using full url: $ANLLM_API_URL"
+Write-Host "[ai enricher] Using AnythingLLM API URL: $ANLLM_API_URL"
+Write-Host "[ai enricher] Using TIMEOUT_MINUTES: $TIMEOUT_MINUTES"
+Write-Host "[ai enricher] Using RETRIES: $RETRIES"
+Write-Host "[ai enricher] Using CANDIDATE_NAME: $($env:CANDIDATE_NAME)"
+Write-Host "[ai enricher] Using workspace: $ANLLM_API_WORKSPACE"
+Write-Host "[ai enricher] Using full url: $ANLLM_API_URL"
 
 
 # Validation
@@ -180,7 +190,7 @@ function Invoke-AnythingLLMChat {
     }
     catch {
       start-sleep -Seconds 10
-      Write-Host "Attempt $($i + 1) failed: $($_.Exception.Message)"
+      Write-Host "[ai enricher] Attempt $($i + 1) failed: $($_.Exception.Message)"
       if ($i -eq ($RETRIES - 1)) { return $_ }
     }
   }
@@ -252,4 +262,4 @@ foreach ($job in $jobs) {
   $new | Export-Csv -Path "jobs_with_responses.csv" -NoTypeInformation -Encoding UTF8
 }
 
-Write-Host "Wrote jobs_with_responses.csv"
+Write-Host "[ai enricher] Wrote jobs_with_responses.csv"

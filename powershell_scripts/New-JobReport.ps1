@@ -68,8 +68,10 @@
 
 .NOTES
     File Name      : New-JobReport.ps1
-    Author         : GitHub Copilot
-    Prerequisite   : PowerShell 5.1 or higher
+    Author         : Jean-Paul Lizotte
+    Created        : 2024-10-24
+    Version        : 0.0.1
+    Prerequisite   : PowerShell 5.1 or higher, CSV file with job listing data
     
     The script includes helper functions for:
     - HTML escaping and sanitization
@@ -88,17 +90,12 @@
 
 <#
 The script below assumes a fixed CSV schema with these exact headers (case-insensitive):
-
 company, company_logo, title, job_url, description, score, why, gaps, seniority, lang
 
 It generates:
-
-Two Executive Summary sections (print-friendly page breaks).
-
+An Executive Summary section
 Detailed paginated section: cards per job with company logo, company name, job title (linked to job URL), markdown > HTML description, and evaluation fields score, why, gaps, seniority, lang. (Prev/Next + jump-to).
-
 Markdown > HTML for description.
-
 Company logo (falls back to an inline SVG with initials if empty/broken).
 #>
 
@@ -211,6 +208,10 @@ function Simple-MarkdownToHtml {
 
 function Get-LogoHtml {
     param([string]$company, [string]$logoPath)
+    #if the logopath is an URL, return an img tag with that URL
+    if ($logoPath -and $logoPath.Trim().Length -gt 0 -and $logoPath.StartsWith("http")) {
+        return "<img class='company-logo' src='$logoPath' alt='${company} logo' />"
+    }
 
     # If logo path provided and exists, embed as data URI
     if ($logoPath -and $logoPath.Trim().Length -gt 0 -and (Test-Path $logoPath)) {
@@ -233,12 +234,14 @@ function Get-LogoHtml {
     }
 
     # Inline SVG fallback with initials
-    if (-not $company) { $company = "?" }
+    if (-not $company -or $company.Trim().Length -eq 0) { $company = "?" }
     $words = ($company -split '\s+') | Where-Object { $_ -ne "" }
     if ($words.Count -ge 2) {
         $initials = ($words[0][0] + $words[1][0]).ToUpper()
-    } else {
+    } elseif ($company.Length -gt 0) {
         $initials = $company.Substring(0, [Math]::Min(2, $company.Length)).ToUpper()
+    } else {
+        $initials = "?"
     }
 
     # Choose a deterministic color from company name
@@ -479,6 +482,19 @@ $null = $sb.AppendLine("</div>") # jobs
 # Footer & scripts
 $null = $sb.AppendLine("<script>$js</script>")
 $null = $sb.AppendLine("</body></html>")
+
+#if the reportexists, make a dated copy before overwriting
+if (Test-Path $OutputHtmlPath) {
+    $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $backupPath = "$OutputHtmlPath.bak_$timestamp"
+    try {
+        Copy-Item -Path $OutputHtmlPath -Destination $backupPath -ErrorAction Stop
+        Write-Host "Existing report backed up to: $backupPath" -ForegroundColor Yellow
+    } catch {
+        Write-Warning "Failed to back up existing report: $_"
+    }
+}
+
 
 # Write to file
 try {

@@ -22,4 +22,4 @@ VOLUME ["/DATA"]
 ENV DATA_DIR=/DATA
 
 # Entrypoint: run the collector once
-CMD ["pwsh", "-Command", "python3 /app/collector.py"]
+CMD ["pwsh", "-file", "/app/flow.ps1"]
