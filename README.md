@@ -14,8 +14,9 @@ Scrape fresh job postings, enrich them with AI scoring, and save everything to C
 - [Job Search Automation Tool](#job-search-automation-tool)
   - [Contents](#contents)
   - [Prerequisites](#prerequisites)
-- [TL;DR Basic system workflow](#tldr-basic-system-workflow)
-  - [Diagram](#diagram)
+- [TL;DR Basic automation workflow](#tldr-basic-automation-workflow)
+  - [Simplified Flow Diagram](#simplified-flow-diagram)
+  - [Full Diagram for call flow.](#full-diagram-for-call-flow)
   - [Anything LLM "manual" scoring sequence:](#anything-llm-manual-scoring-sequence)
   - [Ollama auto scoring sequence:](#ollama-auto-scoring-sequence)
   - [1. The stack](#1-the-stack)
@@ -56,54 +57,73 @@ Scrape fresh job postings, enrich them with AI scoring, and save everything to C
 
 ---
 
-# TL;DR Basic system workflow
+# TL;DR Basic automation workflow
 
-- Flow script tests for ollama
-  - The `collector.py` scraper starts. 
-    - If an output exists, or everythin is good, it exits normally.
-- If ollama was detected and the jobs file exists, 
-  - `getcsv_ollama.ps1` runs automatically jobs are enriched whith AI
-  - `New-JobReport.ps1` is run automatically, a report is in the /DATA/ mapped folder
-- If Ollama wasn't detected: 
-  - The `collector.py` scraper starts.
-    - If an output exists, or everythin is good, it exits normally.
-  - you need to fix the .env file
-  - you run `docker compose up -d` manually
-  - you run `docker compose run --rm jobcollector /bin/bash` to shell into the container :
-    - you run `getcsv.ps1` script manually.
-    - you run `New-JobReport.ps1` manually
+On startup, the flow **chooses a backend**: it prefers **Ollama** if the local API responds; otherwise it tries **AnythingLLM**; if neither is available, it stops clearly. After that, the pipeline is identical: **collect** jobs to CSV, verify the collector succeeded, **enrich** each job using the chosen backend (strict JSON schema, same scoring logic), then **render** a single HTML report. Same shape, one choice.
 
-The flow script will soon adress the AnythingLLM Scenario automatically as well.
+Obviously, in the case wher AnythingLLM isn't finished setting up, the flow will stop. So until you have either Ollama or AnthingLLM available, automation dosnt proceed.
 
-## Diagram
+## Simplified Flow Diagram
+```mermaid
+flowchart TD
+subgraph Backend Choice
+  A[".env loaded<br/>\'docker compose up -d\'"] --> B["Probe Ollama"]
+  B -->|reachable| C["Backend = Ollama"]
+  B -->|not reachable| D["Probe AnythingLLM"]
+  D -->|reachable| W["Backend = AnythingLLM"]
+  D -->|not reachable| E["Stop: no LLM service available"]
+  E -->Y["Fix .env <br/>re-run \'docker compose up -d\'"]
+  
+end
+subgraph Work
+  %% Common pipeline (shared for both backends)
+  W --> F
+  C --> F["Run collector"]
+  F --> G{"Collector OK?"}
+  G -->|no| Z1["Stop: collector failed"]
+  G -->|yes| H["Enrich jobs<br/>(using Backend AI)"]
+  H --> I["Write enriched CSV"]
+  I --> J["Generate report"]
+  J --> K["Done"]
+end
+```
+
+## Full Diagram for call flow.
 
 ```mermaid
 flowchart TD
   subgraph Start
-    A[".env (terms, location, candidate, API keys)"] --> B["docker compose up -d"]
+    A[".env (DATA_DIR, endpoints, keys)"] --> B["docker compose up"]
+    B --> P1["Probe Ollama @ http://ollama:11434/api/tags"]
+    P1 -->|reachable| FLAG["Use Ollama path (preferred)"]
+    P1 -->|not reachable| P2["Probe AnythingLLM @ /api/health or /api/v1/workspace/{slug}"]
+    P2 -->|reachable| FLAG_ALT["Use AnythingLLM path (fallback)"]
+    P2 -->|not reachable| STOP0["Stop: no LLM service available"]
   end
 
+  FLAG --> C["Run collector.py"]
+  FLAG_ALT --> C
+  STOP0 --> X["Exit 1"]
 
+  C --> R{"Collector exit code == 0?"}
+  R -->|no| STOP1["Stop: collector failed"] --> X1["Exit non-zero"]
+  R -->|yes| BR{"Which path?"}
 
-  subgraph Scrape
-    B --> R{"File exists or<br/>was produced successfuly?<br/>(normal exit)"}
-    R -->|no| Z["[flow] Stop (no jobs file)"]
-    R -->|yes| S{"Ollama reachable?"}
-  end
+  %% Option A: Ollama (preferred)
+  BR -->|Ollama| A1["csvget_ollama.ps1 (enrich)"]
+  A1 --> A1OK{"Exit == 0?"}
+  A1OK -->|no| FBF{"AnythingLLM available?"}
+  FBF -->|yes| B1["csvget.ps1 (fallback enrich)"] --> B1OK{"Exit == 0?"}
+  FBF -->|no| STOP2["Stop: enrichment failed"] --> X2["Exit non-zero"]
+  B1OK -->|no| STOP3["Stop: fallback failed"] --> X3["Exit non-zero"]
+  A1OK -->|yes| A2["New-JobReport.ps1 (HTML)"] --> A3["/DATA/jobs_report.html"] --> X0["Exit 0"]
+  B1OK -->|yes| B2["New-JobReport.ps1 (HTML)"] --> B3["/DATA/jobs_report.html"] --> X0
 
-  subgraph Option Ollama
-  %% Option A: Local Ollama
-  S -->|yes| A1["csvget_ollama.ps1<br/>(enrich locally)"]
-  A1 --> A2["jobs_with_responses_ollama.csv"]
-  A2 --> A3["New-JobReport.ps1 (HTML)"]
-  end
-  subgraph Option AnythingLLM
-  %% Option B: Fallback to AnythingLLM
-  S -->|no| B1["fix .env manually"]
-  B1 --> B2["docker compose up -d"]
-    B2 --> B3["Launch csvget.ps1<br/>enrich manually"]
-  B3 --> B4["Launch New-JobReport.ps1 (HTML) Manually"]
-  end
+  %% Option B: AnythingLLM (initial fallback)
+  BR -->|AnythingLLM| B1b["csvget.ps1 (enrich)"] --> B1bOK{"Exit == 0?"}
+  B1bOK -->|no| STOP4["Stop: enrichment failed"] --> X4["Exit non-zero"]
+  B1bOK -->|yes| B2b["New-JobReport.ps1 (HTML)"] --> B3b["/DATA/jobs_report.html"] --> X0
+
 ```
 
 ## Anything LLM "manual" scoring sequence:

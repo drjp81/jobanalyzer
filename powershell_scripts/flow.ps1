@@ -79,6 +79,20 @@ if ($AnllmBase -and (-not $AnllmWorkspace)) {
     exit 1
 }
 
+function Test-HttpOk {
+    param(
+        [Parameter(Mandatory)][string]$Url,
+        [int]$TimeoutSec = 5,
+        [hashtable]$Headers
+    )
+    try {
+        $params = @{ Method = "GET"; Uri = $Url; TimeoutSec = $TimeoutSec; ErrorAction = "Stop" }
+        if ($Headers) { $params.Headers = $Headers }
+        $null = Invoke-RestMethod @params
+        return $true
+    } catch { return $false }
+}
+
 
 function Test-Ollama {
     param([string]$Base)
@@ -116,40 +130,44 @@ if (-not $hasOllama -and -not $hasAnything) {
 #if ollama or anything is available start the collector
 Write-Host "[flow] Starting the collector..."
 & python3 ./collector.py
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[flow] ERROR: Collector failed (exit $LASTEXITCODE). Exiting."
+    exit $LASTEXITCODE
+}
+
 #if it exits normally, that means we have our file to analyze and if OLLAMA is available, we can start processing it
 
-if ($LASTEXITCODE -eq 0) {
-    if ($hasOllama) {
-        Write-Host "[flow] Ollama detected. Starting Ollama processing..."
-        & ./csvget_ollama.ps1 -InCSV "$DataDir\flat_jobs_list.csv"
-        #if this exits normally we can generate the report as well
-        if ($LASTEXITCODE -eq 0) {
-            &  .\New-JobReport.ps1 `
-                -CsvPath "$DataDir/jobs_with_responses_ollama.csv" `
-                -OutputHtmlPath "$DataDir\jobs_report.html" `
-                -PageSize $ReportPageSize
+if ($hasOllama) {
+    Write-Host "[flow] Ollama detected. Starting Ollama processing..."
+    & ./csvget_ollama.ps1 -InCSV "$DataDir/flat_jobs_list.csv"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[flow] ERROR: Ollama processing did not complete successfully (exit $LASTEXITCODE)."
+        if ($hasAnything) {
+            Write-Host "[flow] Falling back to AnythingLLM..."
+            & ./csvget.ps1
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "[flow] ERROR: AnythingLLM processing also failed (exit $LASTEXITCODE). Exiting."
+                exit $LASTEXITCODE
+            }
+            & .\New-JobReport.ps1 -CsvPath "$DataDir/jobs_with_responses.csv" -OutputHtmlPath "$DataDir/jobs_report.html" -PageSize $ReportPageSize
             exit $LASTEXITCODE
-        }
-        else {
-            Write-Host "[flow] Report generation did not complete successfully. Exiting."
-            exit $LASTEXITCODE
-        }
-    }
-    elseif ($hasAnything) {
-        Write-Host "[flow] AnythingLLM API detected. Starting AnythingLLM processing..."
-        & ./csvget.ps1
-        #if this exits normally we can generate the report as well
-        if ($LASTEXITCODE -eq 0) {
-            &  .\New-JobReport.ps1 `
-                -CsvPath "$DataDir\jobs_with_responses.csv" `
-                -OutputHtmlPath "$DataDir\jobs_report.html" `
-                -PageSize $ReportPageSize
-            exit $LASTEXITCODE
-        }
-        else {
-            Write-Host "[flow] Report generation did not complete successfully. Exiting."
+        } else {
             exit $LASTEXITCODE
         }
     }
+
+    # success path -> generate report
+    & .\New-JobReport.ps1 -CsvPath "$DataDir/jobs_with_responses_ollama.csv" -OutputHtmlPath "$DataDir/jobs_report.html" -PageSize $ReportPageSize
+    exit $LASTEXITCODE
+}
+elseif ($hasAnything) {
+    Write-Host "[flow] AnythingLLM API detected. Starting AnythingLLM processing..."
+    & ./csvget.ps1
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[flow] ERROR: AnythingLLM processing did not complete successfully (exit $LASTEXITCODE). Exiting."
+        exit $LASTEXITCODE
+    }
+    & .\New-JobReport.ps1 -CsvPath "$DataDir/jobs_with_responses.csv" -OutputHtmlPath "$DataDir/jobs_report.html" -PageSize $ReportPageSize
+    exit $LASTEXITCODE
 }
 
