@@ -1,4 +1,7 @@
-version: "3.9"
+# AnythingLLM Only - Cloud LLM
+# Use this if you prefer cloud LLM providers (OpenAI, Anthropic, etc.)
+# Requirements: API key from your preferred provider
+# No GPU needed, but you'll pay per API call
 
 services:
   anythingllm:
@@ -6,14 +9,21 @@ services:
     hostname: anythingllm
     container_name: anythingllm
     ports: 
-      - 3001:3001
+      - "3001:3001"
     environment:
       - STORAGE_DIR=/app/server/storage
       - DISABLE_TELEMETRY=true
-
     volumes:
-      - /storage:/app/server/storage # Recommended to persist data, change left side only (/storage) make sure read and write permissions are set.
+      - ${ANYTHINGLLM_DATA_DIR:-./anythingllm-data}:/app/server/storage
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - app_network
 
   jobcollector:
     build:
@@ -22,7 +32,7 @@ services:
     image: drjp81/linkedinscrape:latest
     container_name: jobcollector
     environment:
-      # Collector parameters, notmally taken from .env file, see example file
+      # Collector parameters
       - SITE_NAME=${SITE_NAME:-indeed,linkedin,glassdoor}
       - SEARCH_TERMS=${SEARCH_TERMS:-Azure,devops}
       - LOCATION=${LOCATION:-Canada}
@@ -31,19 +41,26 @@ services:
       - COUNTRY_INDEED=${COUNTRY_INDEED:-canada}
       - LINKEDIN_FETCH_DESCRIPTION=${LINKEDIN_FETCH_DESCRIPTION:-true}
       - DATA_DIR=/DATA
-      # Evaluator parameters
+      - CANDIDATE_NAME=${CANDIDATE_NAME:-John Doe}
+      # AnythingLLM parameters (Ollama disabled)
       - ANLLM_API_KEY=${ANLLM_API_KEY}
       - ANLLM_API_WORKSPACE=${ANLLM_API_WORKSPACE:-job-searching}
       - ANLLM_API_BASE=${ANLLM_API_BASE:-http://anythingllm:3001}
       - RETRIES=${RETRIES:-3}
       - TIMEOUT_MINUTES=${TIMEOUT_MINUTES:-5}
-      - CANDIDATE_NAME=${CANDIDATE_NAME:-John Doe}
-    
+      # Disable Ollama
+      - OLLAMA_BASE=
+      - SCORER_MODEL=
+      - EMBED_MODEL=
     volumes:
-      - /home/drjpuser/DATA/:/DATA #adjust to persist and make it available locally.
+      - ${DATA_DIR:-./data}:/DATA
     depends_on:
-      - anythingllm
+      anythingllm:
+        condition: service_healthy
     restart: on-failure
-    #command: ["python3", "-u", "/app/collector.py"]
+    networks:
+      - app_network
 
-  
+networks:
+  app_network:
+    driver: bridge

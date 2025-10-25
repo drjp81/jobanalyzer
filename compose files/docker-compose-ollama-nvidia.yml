@@ -1,4 +1,4 @@
-# Ollama Only - NVIDIA GPU Ideal scenario.
+# Ollama Only - NVIDIA GPU
 # Use this if you want local, private LLM inference with NVIDIA GPU
 # Requirements: NVIDIA GPU with 6GB+ VRAM, NVIDIA Container Toolkit installed
 
@@ -54,12 +54,11 @@ services:
     container_name: ollama
     hostname: ollama
     ports:
-      - "0.0.0.0:11434:11434"
+      - "11434:11434"
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
       - OLLAMA_DEBUG=0
-      - VERSION=nvidia
       - OLLAMA_ORIGINS=*
     runtime: nvidia
     volumes:

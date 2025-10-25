@@ -38,27 +38,19 @@
 .PARAMETER Retries
     Number of retry attempts for API calls. Defaults to environment variable RETRIES or 3.
 
-.PARAMETER K
-    Number of top resume snippets to retrieve for context (when using embeddings). Defaults to environment variable K_RESUME_SNIPPETS or 6.
-
-.PARAMETER ChunkSize
-    Size of text chunks when splitting resume. Defaults to environment variable RESUME_CHUNK_SIZE or 900.
-
-.PARAMETER ChunkOverlap
-    Overlap between consecutive chunks. Defaults to environment variable RESUME_CHUNK_OVERLAP or 150.
 
 .NOTES
     File Name      : csvget_ollama.ps1
     Author         : Jean-Paul Lizotte
     Created        : 2025-10-24
-    Version        : 0.0.1
+    Version : 0.0.4
     Prerequisite   : PowerShell 7+, Ollama API endpoint accessible, valid resume TEXT file
     
     Environment Variables (Optional):
     - DATA_DIR: Data directory path
     - OLLAMA_BASE: Ollama API base URL
     - SCORER_MODEL: LLM model for scoring
-    - EMBED_MODEL: Embedding model for semantic search
+    - EMBED_MODEL: (deprecated) Embedding model for semantic search
     - CANDIDATE_RESUME_PATH: Path to resume file
     - CANDIDATE_NAME: Candidate's name
     - MUST_HAVES: Comma-separated required skills/attributes
@@ -103,13 +95,9 @@ param(
     [string]$DataDir = $env:DATA_DIR,
     [string]$OllamaBase = $env:OLLAMA_BASE,
     [string]$ScorerModel = $env:SCORER_MODEL,
-    [string]$EmbedModel = $env:EMBED_MODEL,
     [string]$ResumePath = $env:CANDIDATE_RESUME_PATH,
     [string]$CandidateName = $env:CANDIDATE_NAME,
-    [int]$Retries = [int]($env:RETRIES ? $env:RETRIES : 3),
-    [int]$K = [int]($env:K_RESUME_SNIPPETS ? $env:K_RESUME_SNIPPETS : 6),
-    [int]$ChunkSize = [int]($env:RESUME_CHUNK_SIZE ? $env:RESUME_CHUNK_SIZE : 900),
-    [int]$ChunkOverlap = [int]($env:RESUME_CHUNK_OVERLAP ? $env:RESUME_CHUNK_OVERLAP : 150)
+    [int]$Retries = [int]($env:RETRIES ? $env:RETRIES : 3)
 )
 
 if (-not $DataDir) { $DataDir = "/DATA" }
@@ -119,7 +107,7 @@ if (-not $ScorerModel) { $ScorerModel = "qwen2.5:7b-instruct" }
 
 Write-Host "[ai enricher] OLLAMA_BASE  = $OllamaBase"
 Write-Host "[ai enricher] SCORER_MODEL = $ScorerModel"
-#Write-Host "[ai enricher] EMBED_MODEL  = $EmbedModel"
+#Write-Host "[ai enricher] EMBED_MODEL  = $EmbedModel" (deprecated)
 if ($CandidateName) { Write-Host "[ai enricher] CANDIDATE    = $CandidateName" }
 
 # Scoring knobs (optional)
@@ -171,25 +159,25 @@ function Get-Models {
 }
 
 
-function Pull-Model {
+function Pull_Model {
     param([string]$Model)
     Write-Host "[ai enricher] Pulling model '$Model'..."
    $status= Invoke-OllamaApi -Method POST -Path "api/pull" -Body @{ model = $Model; stream = $false }
    if ($status -and $status.status -eq "success") {
-       Write-Host "[ai enricher] Model '$Model' pulled successfully."
+      Write-Host "[ai enricher] Model '$Model' pulled successfully."
    }
    else {
        throw "Failed to pull model '$Model'."
    }
 }
 
-function Ensure-Model {
+function Ensure_Model {
    
     param([string]$Model,
     [string[]]$availableModels)
     $available = $availableModels
     if ($available -notcontains $Model) {
-        Pull-Model -Model $Model
+        Pull_Model -Model $Model
     }
     else {
         Write-Host "[ai enricher] Model '$Model' is already available."
@@ -203,77 +191,15 @@ function Read-ResumeText {
     return Get-Content -Raw -Encoding UTF8 -Path $Path
 }
 
-function Chunk-Text {
-    param([string]$Text, [int]$Size, [int]$Overlap)
-    if (-not $Text) { return @() }
-    $chunks = @()
-    $i = 0
-    while ($i -lt $Text.Length) {
-        $end = [Math]::Min($Text.Length, $i + $Size)
-        $chunks += $Text.Substring($i, $end - $i)
-        $i = $i + $Size - $Overlap
-        if ($i -lt 0) { $i = 0 }
-    }
-    return $chunks
-}
 
-function Embed-Texts {
-    param([string[]]$Texts)
-    if (-not $Texts -or $Texts.Count -eq 0) { return @() }
-    $resp = Invoke-OllamaApi -Method POST -Path "api/embed" -Body @{ model = $EmbedModel; input = $Texts }
-    # Expected shape: { "embeddings": [[...], [...]] } OR { "data":[{embedding:[...]}] }
-    $vecs = @()
-    if ($resp.embeddings) {
-        foreach ($v in $resp.embeddings) { $vecs += , $v }
-    }
-    elseif ($resp.data) {
-        foreach ($it in $resp.data) { $vecs += , $it.embedding }
-    }
-    else {
-        Write-Warning "Unexpected embeddings response shape: $($resp )"
-        throw "Unexpected embeddings response shape: $($resp | ConvertTo-Json -Compress)"
-    }
-    return $vecs
-}
-
-function Cosine-Sim {
-    param($a, $b)
-    if (-not $a -or -not $b) { return 0.0 }
-    $dot = 0.0; $na = 0.0; $nb = 0.0
-    for ($i = 0; $i -lt [Math]::Min($a.Count, $b.Count); $i++) {
-        $dot += ($a[$i] * $b[$i])
-        $na += ($a[$i] * $a[$i])
-        $nb += ($b[$i] * $b[$i])
-    }
-    if ($na -eq 0 -or $nb -eq 0) { return 0.0 }
-    return $dot / ([Math]::Sqrt($na) * [Math]::Sqrt($nb))
-}
-
-function TopK-Resume-Snippets {
-  param([string]$Query, [int]$K)
-
-  if (-not $ResumeChunks -or $ResumeChunks.Count -eq 0) { return @() }
-
-  # One embedding call per job
-  $qvec = (Embed-Texts -Texts @($Query))[0]
-
-  # Cosine sim against precomputed resume vectors
-  $pairs = @()
-  for ($i=0; $i -lt $ResumeChunks.Count; $i++) {
-    $sim = Cosine-Sim -a $qvec -b $ResumeVecs[$i]
-    $pairs += [PSCustomObject]@{ idx=$i; sim=$sim }
-  }
-  $top = $pairs | Sort-Object -Property sim -Descending | Select-Object -First $K
-  return $top | ForEach-Object { $ResumeChunks[$_.idx] }
-}
 
 
 # Get available models
 $availableModels = Get-Models
 
 # Prepare: ensure models
-Ensure-Model -Model $ScorerModel -availableModels $availableModels
-#Ensure-Model -Model $EmbedModel -availableModels $availableModels
+Ensure_Model -Model $ScorerModel -availableModels $availableModels
+#Ensure_Model -Model $EmbedModel -availableModels $availableModels
 
 # Load resume
 $resumeText = $null
@@ -330,13 +256,14 @@ if (-not $jobs -or $jobs.Count -eq 0) { throw "No rows in $InCSV." }
 #Make a backup of an existing output file
 if (Test-Path $outCsv) {
     $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-    $backupPath = "$outCsv.bak_Ollama$timestamp"
+    $fileitem = Get-Item $outCsv
+    $backupPath =  Join-Path ($fileitem.DirectoryName)   ($fileitem.BaseName + "_" + $timestamp + $fileitem.Extension)
     Copy-Item -Path $outCsv -Destination $backupPath
     Write-Host "[ai enricher] Backed up existing $outCsv to $backupPath"
 }
 
 # Build the strict system prompt with your schema and knobs
-function Make-System-Prompt {
+function Make_System_Prompt  {
     # Convert knob strings to JSON-ish lists when present
     function ToList($s) {
         if (-not $s) { return "[]" }
@@ -390,11 +317,29 @@ OUTPUT JSON SCHEMA (and nothing else):
 "@
 }
 
-$systemPrompt = Make-System-Prompt
+$systemPrompt = Make_System_Prompt 
 
 
+# Calculate optimal keep_alive based on workload
+$estimatedSecondsPerJob = 6  # Adjust based on your GPU performance
+$totalEstimatedSeconds = $jobs.Count * $estimatedSecondsPerJob
+$bufferMinutes = 10  # Extra time after completion
+$keepAliveMinutes = [Math]::Max([Math]::Ceiling($totalEstimatedSeconds / 60) + $bufferMinutes, 30)
 
+Write-Host "[ai enricher] Preloading model '$ScorerModel' for $($jobs.Count) jobs (keep-alive: $keepAliveMinutes minutes)..."
 
+# Preload model with calculated keep_alive
+try {
+    Invoke-OllamaApi -Method POST -Path "api/generate" -Body @{
+        model = $ScorerModel
+        prompt = ""
+        keep_alive = "$($keepAliveMinutes)m"
+    } | Out-Null
+    Write-Host "[ai enricher] Model loaded and ready"
+} catch {
+    Write-Warning "[ai enricher] Failed to preload model: $_"
+    Write-Host "[ai enricher] Continuing anyway (model will load on first request)..."
+}
 
 # Main loop: for each job, retrieve top-K resume snippets and call /api/chat with format: json
 $rowsOut = @()
@@ -402,7 +347,7 @@ $rowsOut = @()
 $jobCounter = 0
 foreach ($job in $jobs) {
     $jobCounter++
-    Write-Host "[ai enricher] Processing job $jobCounter of $($jobs.Count)"
+
     #start a timer to calculate the duration of each job processing
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $title = $job.title
@@ -435,15 +380,16 @@ foreach ($job in $jobs) {
     )
 
     # Latest Ollama: /api/chat with format:"json", stream:false, temperature:$temperature, num_ctx:$contextLength
+    # In the main loop (line 384), simplify to:
     $body = @{
         model    = $ScorerModel
         messages = $messages
         format   = "json"
         stream   = $false
-        keep_alive = [string]$timeoutMinutes +"m"
+        # Don't set keep_alive here - already set during preload
         options  = @{ temperature = $temperature; num_ctx = $contextLength }
     }
-    Write-Host "[ai enricher] Processing job: $($job.id) - $title"
+
     $resp = Invoke-OllamaApi -Method POST -Path "api/chat" -Body $body
 
     # Expected shape: { message: { role: "assistant", content: "<JSON>" }, ... }
@@ -460,6 +406,15 @@ foreach ($job in $jobs) {
     $out = $job | Select-Object *
     foreach ($name in $parsed.PSObject.Properties.Name) {
         $val = $parsed.$name
+        # Must flattent results that are arrays into strings for CSV
+        if ($val -is [System.Array]) {
+            $val = $val -join "; "
+        }
+        # Sometimes arrays are system objects; convert to strings
+        elseif ($val -is [System.Management.Automation.PSCustomObject]) {
+            $val = $val | Out-String
+        }
+
         if (-not ($out | Get-Member -Name $name -ErrorAction SilentlyContinue)) {
             $out | Add-Member -NotePropertyName $name -NotePropertyValue $val
         }
@@ -469,10 +424,39 @@ foreach ($job in $jobs) {
     }
     $rowsOut += $out
     $stopwatch.Stop()
-    Write-Host ("[ai enricher] [{0}] score={1}" -f ($title -replace "\r?\n", " "), ($parsed.score -as [string]))
-    Write-Host "[ai enricher] Elapsed time: $($stopwatch.Elapsed.TotalSeconds) seconds"
+    # Write partial output after each job
+    # Write header once
+    if ($jobCounter -eq 1) {
+        $out | Export-Csv -Path $outCsv -NoTypeInformation -Encoding UTF8
+    } else {
+        $out | Export-Csv -Path $outCsv -NoTypeInformation -Encoding UTF8 -Append -Force
+    }
+    #Write-Host ("[ai enricher] [{0}] score={1}" -f ($title -replace "\r?\n", " "), ($parsed.score -as [string]))
+    Write-Host "[ai enricher] Processed job: $($job.id) - [$title]. $jobCounter of $($jobs.Count). Score: $($parsed.score -as [string]). Elapsed time: $($stopwatch.Elapsed.TotalSeconds) seconds"
 }
 
-# Write output
-$rowsOut | Export-Csv -Path $outCsv -NoTypeInformation -Encoding UTF8
+#append all the jobs that had no description and give them a score of minus one.
+$jobsnodesc = Import-Csv -Path $InCSV | Where-Object { $_.title -and -not ($_.Description -or $_.description) }
+
+foreach ($job in $jobsnodesc) {
+    $out = $job | Select-Object *
+    $out | Add-Member -NotePropertyName "score" -NotePropertyValue -1
+    $out | Add-Member -NotePropertyName "why" -NotePropertyValue "No job description provided."
+    $rowsOut += $out
+    # Append to CSV
+    $out | Export-Csv -Path $outCsv -NoTypeInformation -Encoding UTF8 -Append -Force
+    Write-Host "[ai enricher] Processed job with no description: $($job.id) - [$($job.title)]. Appended with score -1."
+}
+
+try {
+    Invoke-OllamaApi -Method POST -Path "api/generate" -Body @{
+        model = $ScorerModel
+        keep_alive = "0"
+    } | Out-Null
+    Write-Host "[ai enricher] Model loaded and ready"
+} catch {
+    Write-Warning "[ai enricher] Failed to preload model: $_"
+    Write-Host "[ai enricher] Continuing anyway (model will load on first request)..."
+}
+
 Write-Host "[ai enricher] Wrote $outCsv"

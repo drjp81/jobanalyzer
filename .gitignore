@@ -5,3 +5,5 @@ collector/__pycache__/**
 **/*.csv
 .env
 **/*.zip
+**/debug*.*
+**/debug_*.*

@@ -22,7 +22,7 @@
     Project     : LinkedIn Scraper
     Author      : Jean-Paul Lizotte
     Created     : 2025-10-24
-    Version     : 0.0.1
+    Version : 0.0.4
     Requires    : PowerShell 7+, AnythingLLM API endpoint accessible, valid AnythingLLM API key and workspace
     Exit Codes  : 0 = Success, 1 = Configuration/service error, other = propagated from child scripts
 
@@ -260,6 +260,19 @@ foreach ($job in $jobs) {
   $new += $job
   #commit the new file each cycle
   $new | Export-Csv -Path "jobs_with_responses.csv" -NoTypeInformation -Encoding UTF8
+}
+
+#append all the jobs that had no description and give them a score of minus one.
+$jobsnodesc = Import-Csv -Path "flat_jobs_list.csv" | Where-Object { $_.title -and -not ($_.Description -or $_.description) }
+
+foreach ($job in $jobsnodesc) {
+    $out = $job | Select-Object *
+    $out | Add-Member -NotePropertyName "score" -NotePropertyValue -1
+    $out | Add-Member -NotePropertyName "why" -NotePropertyValue "No job description provided."
+    $rowsOut += $out
+    # Append to CSV
+    $out | Export-Csv -Path $outCsv -NoTypeInformation -Encoding UTF8 -Append -Force
+    Write-Host "[ai enricher] Processed job with no description: $($job.id) - [$($job.title)]. Appended with score -1."
 }
 
 Write-Host "[ai enricher] Wrote jobs_with_responses.csv"

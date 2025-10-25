@@ -39,7 +39,7 @@
     Project     : LinkedIn Scraper
     Author      : Jean-Paul Lizotte
     Created     : 2025-10-24
-    Version     : 0.0.1
+    Version : 0.0.4
     Requires    : PowerShell 7+, Python 3, collector.py, csvget.ps1, csvget_ollama.ps1, New-JobReport.ps1
     Exit Codes  : 0 = Success, 1 = Configuration/service error, other = propagated from child scripts
 
@@ -117,8 +117,10 @@ function Test-AnythingLLM {
 
 # --- Probe targets (preference: Ollama) -------------------------------------
 $hasOllama = Test-Ollama -Base $OllamaBase
-$hasAnything = Test-AnythingLLM -Base $AnllmBase -ApiKey $AnllmApiKey -Workspace $AnllmWorkspace
-
+#--- If Ollama is not available, check AnythingLLM ------------------------------
+if (-not $hasOllama) {
+    $hasAnything = Test-AnythingLLM -Base $AnllmBase -ApiKey $AnllmApiKey -Workspace $AnllmWorkspace
+} 
 
 #if neither is available stop the flow with a warning
 if (-not $hasOllama -and -not $hasAnything) {

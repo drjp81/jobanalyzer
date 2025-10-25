@@ -1,8 +1,32 @@
-# Ollama Only - NVIDIA GPU Ideal scenario.
-# Use this if you want local, private LLM inference with NVIDIA GPU
-# Requirements: NVIDIA GPU with 6GB+ VRAM, NVIDIA Container Toolkit installed
+# Both Backends - AMD GPU
+# Use this for maximum reliability: Ollama as primary, AnythingLLM as fallback
+# Requirements: AMD GPU with ROCm support, API key for fallback
 
 services:
+  anythingllm:
+    image: mintplexlabs/anythingllm:latest
+    hostname: anythingllm
+    container_name: anythingllm
+    ports: 
+      - "3001:3001"
+    environment:
+      - STORAGE_DIR=/app/server/storage
+      - DISABLE_TELEMETRY=true
+    volumes:
+      - ${ANYTHINGLLM_DATA_DIR:-./anythingllm-data}:/app/server/storage
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - app_network
+
   jobcollector:
     build:
       context: ../.
@@ -19,14 +43,14 @@ services:
       - COUNTRY_INDEED=${COUNTRY_INDEED:-canada}
       - LINKEDIN_FETCH_DESCRIPTION=${LINKEDIN_FETCH_DESCRIPTION:-true}
       - DATA_DIR=/DATA
-      # Ollama parameters (AnythingLLM disabled)
+      # Ollama parameters (primary)
       - OLLAMA_BASE=${OLLAMA_BASE:-http://ollama:11434}
       - SCORER_MODEL=${SCORER_MODEL:-qwen2.5:7b-instruct}
       # - EMBED_MODEL=${EMBED_MODEL:-nomic-embed-text:v1.5}
       - CANDIDATE_NAME=${CANDIDATE_NAME:-John Doe}
       - CANDIDATE_RESUME_PATH=${CANDIDATE_RESUME_PATH:-/DATA/resume/resume.txt}
       - TEMPERATURE=${TEMPERATURE:-0.3}
-      - CONTEXT_LENGTH=${CONTEXT_LENGTH:-32768}
+      - CONTEXT_LENGTH=${CONTEXT_LENGTH:-16384}
       - MUST_HAVES=${MUST_HAVES}
       - NICE_TO_HAVES=${NICE_TO_HAVES}
       - EXCLUSIONS=${EXCLUSIONS}
@@ -36,42 +60,42 @@ services:
       - K_RESUME_SNIPPETS=${K_RESUME_SNIPPETS:-6}
       - RESUME_CHUNK_SIZE=${RESUME_CHUNK_SIZE:-900}
       - RESUME_CHUNK_OVERLAP=${RESUME_CHUNK_OVERLAP:-150}
-      # Disable AnythingLLM
-      - ANLLM_API_KEY=
-      - ANLLM_API_WORKSPACE=
-      - ANLLM_API_BASE=
+      # AnythingLLM parameters (fallback)
+      - ANLLM_API_KEY=${ANLLM_API_KEY}
+      - ANLLM_API_WORKSPACE=${ANLLM_API_WORKSPACE:-job-searching}
+      - ANLLM_API_BASE=${ANLLM_API_BASE:-http://anythingllm:3001}
+      - RETRIES=${RETRIES:-3}
+      - TIMEOUT_MINUTES=${TIMEOUT_MINUTES:-5}
     volumes:
       - ${DATA_DIR:-./data}:/DATA
     depends_on:
       ollama:
+        condition: service_healthy
+      anythingllm:
         condition: service_healthy
     restart: on-failure
     networks:
       - app_network
 
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:rocm
     container_name: ollama
     hostname: ollama
     ports:
-      - "0.0.0.0:11434:11434"
+      - "11434:11434"
     environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=all
       - OLLAMA_DEBUG=0
-      - VERSION=nvidia
       - OLLAMA_ORIGINS=*
-    runtime: nvidia
+      - HSA_OVERRIDE_GFX_VERSION=11.0.0  # Adjust for your GPU
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+      - render
     volumes:
       - ${OLLAMA_DATA_DIR:-./ollama-data}:/root/.ollama
     restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 30s

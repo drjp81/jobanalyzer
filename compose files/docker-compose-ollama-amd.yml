@@ -1,6 +1,6 @@
-# Ollama Only - NVIDIA GPU Ideal scenario.
-# Use this if you want local, private LLM inference with NVIDIA GPU
-# Requirements: NVIDIA GPU with 6GB+ VRAM, NVIDIA Container Toolkit installed
+# Ollama Only - AMD GPU
+# Use this if you want local, private LLM inference with AMD GPU (ROCm)
+# Requirements: AMD GPU with ROCm support (RX 6000/7000 series or newer)
 
 services:
   jobcollector:
@@ -26,7 +26,7 @@ services:
       - CANDIDATE_NAME=${CANDIDATE_NAME:-John Doe}
       - CANDIDATE_RESUME_PATH=${CANDIDATE_RESUME_PATH:-/DATA/resume/resume.txt}
       - TEMPERATURE=${TEMPERATURE:-0.3}
-      - CONTEXT_LENGTH=${CONTEXT_LENGTH:-32768}
+      - CONTEXT_LENGTH=${CONTEXT_LENGTH:-16384}
       - MUST_HAVES=${MUST_HAVES}
       - NICE_TO_HAVES=${NICE_TO_HAVES}
       - EXCLUSIONS=${EXCLUSIONS}
@@ -50,28 +50,24 @@ services:
       - app_network
 
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:rocm
     container_name: ollama
     hostname: ollama
     ports:
-      - "0.0.0.0:11434:11434"
+      - "11434:11434"
     environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=all
       - OLLAMA_DEBUG=0
-      - VERSION=nvidia
       - OLLAMA_ORIGINS=*
-    runtime: nvidia
+      - HSA_OVERRIDE_GFX_VERSION=11.0.0  # Adjust for your GPU
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
+      - render
     volumes:
       - ${OLLAMA_DATA_DIR:-./ollama-data}:/root/.ollama
     restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 30s

@@ -70,7 +70,7 @@
     File Name      : New-JobReport.ps1
     Author         : Jean-Paul Lizotte
     Created        : 2024-10-24
-    Version        : 0.0.1
+    Version : 0.0.4
     Prerequisite   : PowerShell 5.1 or higher, CSV file with job listing data
     
     The script includes helper functions for:
@@ -142,7 +142,7 @@ function HtmlEscape([string]$s) {
     return $s
 }
 
-function Simple-MarkdownToHtml {
+function Simple_MarkdownToHtml {
     param([string]$md)
 
     if ($null -eq $md) { return "" }
@@ -289,11 +289,11 @@ $rows = Import-Csv -Path $CsvPath -ErrorAction Stop | Sort-Object -Property scor
 $total = $rows.Count
 
 # -- Compute executive summary metrics -------------------------------------
-# Average score (ignore non-numeric)
+# Average score (ignore non-numeric) ignore minus ones
 $scores = @()
 foreach ($r in $rows) {
     $val = Get-FieldValue $r $defaults.score
-    if ($val -ne $null -and $val -as [double]) { $scores += [double]$val }
+    if ($null -ne $val -and $val -as [double] -and $val -ne -1) { $scores += [double]$val }
 }
 $avgScore = if ($scores.Count -gt 0) { "{0:N2}" -f (($scores | Measure-Object -Sum).Sum / $scores.Count) } else { "N/A" }
 
@@ -434,7 +434,7 @@ foreach ($r in $rows) {
     $jobUrl = Get-FieldValue $r $defaults.job_url
     $location = Get-FieldValue $r $defaults.location  # Get location value
     $descMd = Get-FieldValue $r $defaults.description
-    $descHtml = Simple-MarkdownToHtml $descMd
+    $descHtml = Simple_MarkdownToHtml $descMd
     $score = Get-FieldValue $r $defaults.score
     $why = Get-FieldValue $r $defaults.why
     $gaps = Get-FieldValue $r $defaults.gaps
@@ -488,6 +488,10 @@ if (Test-Path $OutputHtmlPath) {
     $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
     $backupPath = "$OutputHtmlPath.bak_$timestamp"
     try {
+
+        $fileitem = Get-Item $OutputHtmlPath
+        $backupPath =  Join-Path ($fileitem.DirectoryName)   ($fileitem.BaseName + "_" + $timestamp + $fileitem.Extension)
+
         Copy-Item -Path $OutputHtmlPath -Destination $backupPath -ErrorAction Stop
         Write-Host "Existing report backed up to: $backupPath" -ForegroundColor Yellow
     } catch {

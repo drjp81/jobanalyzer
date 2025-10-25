@@ -1,6 +1,7 @@
-# Ollama Only - NVIDIA GPU Ideal scenario.
-# Use this if you want local, private LLM inference with NVIDIA GPU
-# Requirements: NVIDIA GPU with 6GB+ VRAM, NVIDIA Container Toolkit installed
+# Ollama Only - CPU
+# Use this if you want local, private LLM inference without GPU
+# Requirements: 8+ CPU cores, 16GB+ RAM (slower, but works)
+# Recommended: Use smaller models (3B parameters max)
 
 services:
   jobcollector:
@@ -21,12 +22,12 @@ services:
       - DATA_DIR=/DATA
       # Ollama parameters (AnythingLLM disabled)
       - OLLAMA_BASE=${OLLAMA_BASE:-http://ollama:11434}
-      - SCORER_MODEL=${SCORER_MODEL:-qwen2.5:7b-instruct}
+      - SCORER_MODEL=${SCORER_MODEL:-llama3.2:3b-instruct-q6_K}  # Smaller model for CPU
       # - EMBED_MODEL=${EMBED_MODEL:-nomic-embed-text:v1.5}
       - CANDIDATE_NAME=${CANDIDATE_NAME:-John Doe}
       - CANDIDATE_RESUME_PATH=${CANDIDATE_RESUME_PATH:-/DATA/resume/resume.txt}
       - TEMPERATURE=${TEMPERATURE:-0.3}
-      - CONTEXT_LENGTH=${CONTEXT_LENGTH:-32768}
+      - CONTEXT_LENGTH=${CONTEXT_LENGTH:-8192}  # Reduced for CPU
       - MUST_HAVES=${MUST_HAVES}
       - NICE_TO_HAVES=${NICE_TO_HAVES}
       - EXCLUSIONS=${EXCLUSIONS}
@@ -54,24 +55,20 @@ services:
     container_name: ollama
     hostname: ollama
     ports:
-      - "0.0.0.0:11434:11434"
+      - "11434:11434"
     environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=all
       - OLLAMA_DEBUG=0
-      - VERSION=nvidia
       - OLLAMA_ORIGINS=*
-    runtime: nvidia
+      - OLLAMA_NUM_PARALLEL=1  # Limit parallelism on CPU
+      - OLLAMA_MAX_LOADED_MODELS=1
     volumes:
       - ${OLLAMA_DATA_DIR:-./ollama-data}:/root/.ollama
     restart: unless-stopped
     deploy:
       resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+        limits:
+          cpus: '8'
+          memory: 16G
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 30s
